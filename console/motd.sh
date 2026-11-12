@@ -1,4 +1,5 @@
-# Welcome banner for interactive login shells
+# shellcheck shell=bash
+# Welcome banner for interactive login shells (sourced from /etc/profile.d by bash -l)
 if [ -n "$PS1" ]; then
   . /etc/os-release
   printf '\n  \033[1;33m%s\033[0m  ·  user \033[1m%s\033[0m (sudo without password)\n' "$PRETTY_NAME" "$(whoami)"
