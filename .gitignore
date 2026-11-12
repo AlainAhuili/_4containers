@@ -1,2 +1,6 @@
 # local settings (your own folder paths) — copy .env.example to .env
 .env
+
+# Python bytecode
+__pycache__/
+*.pyc
