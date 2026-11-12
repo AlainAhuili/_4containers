@@ -1,0 +1,129 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Paint</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; font: 14px "Segoe UI", system-ui, sans-serif; background: #e9ecf1; color: #1d2330; }
+  .app { display: flex; flex-direction: column; height: 100%; }
+  .tools { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 8px 12px; background: #f8f9fb; border-bottom: 1px solid #cfd5df; }
+  .group { display: flex; align-items: center; gap: 4px; }
+  .group + .group { border-left: 1px solid #d8dde6; padding-left: 14px; }
+  button.tool { width: 34px; height: 34px; border: 1px solid transparent; border-radius: 5px; background: none; cursor: pointer; font-size: 17px; }
+  button.tool:hover { background: #e4e8ef; }
+  button.tool.on { background: #dbe7fb; border-color: #5a8de0; }
+  .sw { width: 22px; height: 22px; border-radius: 50%; border: 1px solid #9aa3b2; cursor: pointer; padding: 0; }
+  .sw.on { outline: 2px solid #3b6fd1; outline-offset: 2px; }
+  input[type=color] { width: 34px; height: 30px; border: 0; padding: 0; background: none; cursor: pointer; }
+  label { font-size: 12px; color: #5b6475; display: flex; align-items: center; gap: 6px; }
+  .act { border: 1px solid #c4cbd7; background: #fff; border-radius: 5px; padding: 6px 12px; cursor: pointer; font: inherit; }
+  .act:hover { background: #f0f3f8; }
+  .wrap { flex: 1; overflow: auto; display: grid; place-items: center; padding: 18px; }
+  canvas { background: #fff; box-shadow: 0 2px 12px rgba(0,0,0,.18); cursor: crosshair; touch-action: none; max-width: 100%; }
+  .status { padding: 4px 12px; font-size: 12px; color: #5b6475; background: #f8f9fb; border-top: 1px solid #cfd5df; font-variant-numeric: tabular-nums; }
+</style>
+</head>
+<body>
+<div class="app">
+  <div class="tools">
+    <div class="group" id="toolset">
+      <button class="tool on" data-tool="brush" title="Brush (B)">✏️</button>
+      <button class="tool" data-tool="eraser" title="Eraser (E)">🩹</button>
+      <button class="tool" data-tool="line" title="Line (L)">╱</button>
+      <button class="tool" data-tool="rect" title="Rectangle (R)">▭</button>
+      <button class="tool" data-tool="ellipse" title="Ellipse (O)">◯</button>
+      <button class="tool" data-tool="fill" title="Fill bucket (F)">🪣</button>
+      <button class="tool" data-tool="text" title="Text (T)">A</button>
+    </div>
+    <div class="group" id="swatches"></div>
+    <div class="group"><input type="color" id="color" value="#1d2330" title="Custom color"></div>
+    <div class="group"><label>Size <input type="range" id="size" min="1" max="60" value="6"> <span id="sizeVal">6</span></label></div>
+    <div class="group"><label><input type="checkbox" id="filled"> Filled shapes</label></div>
+    <div class="group">
+      <button class="act" id="undo" title="Ctrl+Z">Undo</button>
+      <button class="act" id="clear">Clear</button>
+      <button class="act" id="save">Save PNG</button>
+    </div>
+  </div>
+  <div class="wrap"><canvas id="c" width="1280" height="760"></canvas></div>
+  <div class="status" id="status">Brush · 0, 0</div>
+</div>
+<script>
+const cv = document.getElementById("c"), ctx = cv.getContext("2d", { willReadFrequently: true });
+const COLORS = ["#1d2330","#ffffff","#7f8794","#d63031","#e17055","#fdcb6e","#00b894","#0984e3","#6c5ce7","#e84393","#8b5a2b"];
+let tool = "brush", color = "#1d2330", size = 6, drawing = false, start = null, snap = null;
+const undo = [];
+ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, cv.width, cv.height);
+
+const sw = document.getElementById("swatches");
+COLORS.forEach(c => { const b = document.createElement("button"); b.className = "sw" + (c === color ? " on" : ""); b.style.background = c; b.title = c; b.onclick = () => setColor(c); sw.appendChild(b); });
+function setColor(c) { color = c; document.getElementById("color").value = c; sw.querySelectorAll(".sw").forEach(b => b.classList.toggle("on", b.title === c)); }
+document.getElementById("color").oninput = e => setColor(e.target.value);
+document.getElementById("size").oninput = e => { size = +e.target.value; document.getElementById("sizeVal").textContent = size; };
+function setTool(t) { tool = t; document.querySelectorAll(".tool").forEach(b => b.classList.toggle("on", b.dataset.tool === t)); }
+document.querySelectorAll(".tool").forEach(b => b.onclick = () => setTool(b.dataset.tool));
+
+const pos = e => { const r = cv.getBoundingClientRect(); return { x: (e.clientX - r.left) * cv.width / r.width, y: (e.clientY - r.top) * cv.height / r.height }; };
+const pushUndo = () => { undo.push(ctx.getImageData(0, 0, cv.width, cv.height)); if (undo.length > 40) undo.shift(); };
+function style() { ctx.strokeStyle = tool === "eraser" ? "#fff" : color; ctx.fillStyle = color; ctx.lineWidth = size; ctx.lineCap = "round"; ctx.lineJoin = "round"; }
+
+function shape(a, b) {
+  ctx.putImageData(snap, 0, 0); style(); ctx.beginPath();
+  if (tool === "line") { ctx.moveTo(a.x, a.y); ctx.lineTo(b.x, b.y); ctx.stroke(); return; }
+  if (tool === "rect") ctx.rect(a.x, a.y, b.x - a.x, b.y - a.y);
+  if (tool === "ellipse") ctx.ellipse((a.x + b.x) / 2, (a.y + b.y) / 2, Math.abs(b.x - a.x) / 2, Math.abs(b.y - a.y) / 2, 0, 0, Math.PI * 2);
+  document.getElementById("filled").checked ? ctx.fill() : ctx.stroke();
+}
+
+function flood(x, y) {
+  x |= 0; y |= 0;
+  const img = ctx.getImageData(0, 0, cv.width, cv.height), d = img.data, w = cv.width, h = cv.height;
+  const i0 = (y * w + x) * 4, t = [d[i0], d[i0+1], d[i0+2], d[i0+3]];
+  const n = parseInt(color.slice(1), 16), f = [n >> 16 & 255, n >> 8 & 255, n & 255, 255];
+  if (t.every((v, k) => v === f[k])) return;
+  const match = i => Math.abs(d[i]-t[0]) + Math.abs(d[i+1]-t[1]) + Math.abs(d[i+2]-t[2]) + Math.abs(d[i+3]-t[3]) < 48;
+  const stack = [[x, y]];
+  while (stack.length) {
+    let [cx, cy] = stack.pop(); let i = (cy * w + cx) * 4;
+    while (cx >= 0 && match(i)) { cx--; i -= 4; }
+    cx++; i += 4; let up = false, dn = false;
+    while (cx < w && match(i)) {
+      d[i] = f[0]; d[i+1] = f[1]; d[i+2] = f[2]; d[i+3] = 255;
+      if (cy > 0) { const u = match(i - w * 4); if (u && !up) stack.push([cx, cy - 1]); up = u; }
+      if (cy < h - 1) { const v = match(i + w * 4); if (v && !dn) stack.push([cx, cy + 1]); dn = v; }
+      cx++; i += 4;
+    }
+  }
+  ctx.putImageData(img, 0, 0);
+}
+
+cv.addEventListener("pointerdown", e => {
+  const p = pos(e); pushUndo();
+  if (tool === "fill") return flood(p.x, p.y);
+  if (tool === "text") { const s = prompt("Text:"); if (s) { ctx.fillStyle = color; ctx.font = `${Math.max(12, size * 4)}px Segoe UI, sans-serif`; ctx.fillText(s, p.x, p.y); } else undo.pop(); return; }
+  drawing = true; start = p; cv.setPointerCapture(e.pointerId);
+  if (tool === "brush" || tool === "eraser") { style(); ctx.beginPath(); ctx.moveTo(p.x, p.y); ctx.lineTo(p.x + .01, p.y); ctx.stroke(); }
+  else snap = ctx.getImageData(0, 0, cv.width, cv.height);
+});
+cv.addEventListener("pointermove", e => {
+  const p = pos(e);
+  document.getElementById("status").textContent = `${tool[0].toUpperCase() + tool.slice(1)} · ${p.x | 0}, ${p.y | 0}`;
+  if (!drawing) return;
+  if (tool === "brush" || tool === "eraser") { ctx.lineTo(p.x, p.y); ctx.stroke(); }
+  else shape(start, p);
+});
+cv.addEventListener("pointerup", () => { drawing = false; });
+
+document.getElementById("undo").onclick = () => { const s = undo.pop(); if (s) ctx.putImageData(s, 0, 0); };
+document.getElementById("clear").onclick = () => { pushUndo(); ctx.fillStyle = "#fff"; ctx.fillRect(0, 0, cv.width, cv.height); };
+document.getElementById("save").onclick = () => { const a = document.createElement("a"); a.download = "painting.png"; a.href = cv.toDataURL("image/png"); a.click(); };
+document.addEventListener("keydown", e => {
+  if (e.ctrlKey && e.key === "z") { e.preventDefault(); document.getElementById("undo").click(); return; }
+  const k = { b: "brush", e: "eraser", l: "line", r: "rect", o: "ellipse", f: "fill", t: "text" }[e.key.toLowerCase()];
+  if (k && !e.ctrlKey) setTool(k);
+});
+</script>
+</body>
+</html>

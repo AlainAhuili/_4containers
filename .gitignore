@@ -1,0 +1,2 @@
+# local settings (your own folder paths) — copy .env.example to .env
+.env

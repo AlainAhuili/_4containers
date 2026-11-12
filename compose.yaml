@@ -1,0 +1,67 @@
+# Four containers: a dashboard that watches and embeds the other three.
+# All ports are bound to 127.0.0.1, so only this computer can reach them
+# (the console is a real shell, so it should not be exposed to the network).
+name: four-containers
+
+services:
+  dashboard:
+    build: ./dashboard
+    ports:
+      - "127.0.0.1:8080:8080"
+    environment:
+      # internal addresses the dashboard probes (compose network DNS)
+      PAINT_URL: http://paint:80/
+      CONSOLE_URL: http://console:7681/
+      WHITEBOARD_URL: http://whiteboard:80/
+    depends_on:
+      paint:
+        condition: service_healthy
+      console:
+        condition: service_healthy
+      whiteboard:
+        condition: service_started
+    restart: unless-stopped
+
+  paint:
+    build: ./paint
+    ports:
+      - "127.0.0.1:8081:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  console:
+    build: ./console
+    hostname: ubuntu
+    ports:
+      - "127.0.0.1:8082:7681"
+    volumes:
+      - ubuntu-home:/home/dev
+      # the host workspace folder (set WORKSPACE_DIR in .env), read-write at ~/workspace
+      - ${WORKSPACE_DIR:-.}:/home/dev/workspace
+    extra_hosts:
+      # reach services running on this computer (the host's localhost) as host.docker.internal
+      - "host.docker.internal:host-gateway"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1:7681/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+  whiteboard:
+    build: ./whiteboard
+    ports:
+      - "127.0.0.1:8083:80"
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://127.0.0.1/"]
+      interval: 10s
+      timeout: 3s
+      retries: 3
+    restart: unless-stopped
+
+volumes:
+  ubuntu-home:

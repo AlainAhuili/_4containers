@@ -1,0 +1,313 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, user-scalable=no">
+<title>Whiteboard</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Caveat:wght@500;700&family=Patrick+Hand&display=swap">
+<style>
+  * { box-sizing: border-box; }
+  html, body { height: 100%; margin: 0; overflow: hidden; font: 14px "Segoe UI", system-ui, sans-serif; }
+  body { background: #fbfbf8; }
+  body.white { background: #fbfbf8 radial-gradient(#d9dbe0 1.2px, transparent 1.3px) 0 0 / 28px 28px; }
+  body.lined { background: #fffdf5 repeating-linear-gradient(#fffdf5 0 35px, #b9d3ee 35px 36px); }
+  body.chalk { background: #1f3a2e radial-gradient(ellipse at 30% 20%, #2a4a3b, #183026 70%); }
+  body.black { background: #15171c radial-gradient(#2a2e37 1.2px, transparent 1.3px) 0 0 / 28px 28px; }
+  #ink { position: fixed; inset: 0; width: 100%; height: 100%; touch-action: none; cursor: crosshair; }
+
+  /* Tools panel: a vertical column docked to the right edge (drag the grip to move it) */
+  .bar { position: fixed; right: 12px; top: 50%; transform: translateY(-50%); width: 166px; max-height: calc(100vh - 24px); overflow-y: auto;
+         display: flex; flex-direction: column; align-items: stretch; padding: 4px 6px 8px;
+         background: rgba(255,255,255,.96); border: 1px solid #dfe2e8; border-radius: 14px; box-shadow: 0 6px 24px rgba(20,30,50,.14); z-index: 2; }
+  .bar.moved { right: auto; transform: none; }
+  .bar.dragging { box-shadow: 0 12px 34px rgba(20,30,50,.28); opacity: .96; }
+  .grip { width: 100%; height: 16px; border: 0; background: none; cursor: grab; touch-action: none; border-radius: 6px; display: grid; place-items: center; padding: 0; color: #a3abb9; }
+  .grip:hover { background: #f0f2f6; color: #5b6475; }
+  .grip:active, .bar.dragging .grip { cursor: grabbing; }
+  .grip:focus-visible { outline: 2px solid #3b6fd1; }
+  .grip svg { width: 10px; height: 18px; fill: currentColor; transform: rotate(90deg); }
+  .grp { display: flex; flex-wrap: wrap; justify-content: center; align-items: center; gap: 6px; padding: 7px 0; }
+  .grp + .grp { border-top: 1px solid #e3e6ec; }
+  .grp select { width: 100%; }
+  .b { width: 32px; height: 32px; border: 1px solid transparent; border-radius: 10px; background: none; cursor: pointer; display: grid; place-items: center; color: #2a3140; }
+  .b:hover { background: #f0f2f6; }
+  .b.on { background: #e6eefc; border-color: #7aa2ec; }
+  .b svg { width: 19px; height: 19px; stroke: currentColor; fill: none; stroke-width: 2; stroke-linecap: round; stroke-linejoin: round; }
+  .b:focus-visible { outline: 2px solid #3b6fd1; outline-offset: 1px; }
+  .c { width: 24px; height: 24px; border-radius: 50%; border: 2px solid #fff; box-shadow: 0 0 0 1px #c9ced8; cursor: pointer; padding: 0; }
+  .c.on { box-shadow: 0 0 0 2px #2a3140; transform: scale(1.12); }
+  .c.rainbow { background: conic-gradient(red, orange, yellow, lime, cyan, blue, magenta, red); }
+  .sizes { display: flex; gap: 2px; }
+  .sz { width: 26px; height: 32px; border: 0; background: none; border-radius: 8px; cursor: pointer; display: grid; place-items: center; }
+  .sz.on { background: #e6eefc; }
+  .sz i { display: block; border-radius: 50%; background: #2a3140; }
+  select { height: 34px; border: 1px solid #dfe2e8; border-radius: 8px; padding: 0 6px; background: #fff; font: inherit; }
+  .hint { position: fixed; left: 50%; bottom: 14px; transform: translateX(-50%); font-size: 12px; color: #7b8494; background: rgba(255,255,255,.85); padding: 4px 10px; border-radius: 8px; pointer-events: none; transition: opacity .6s; }
+  body.chalk .hint, body.black .hint { color: #c5ccd8; background: rgba(0,0,0,.35); }
+  #textbox { position: fixed; display: none; min-width: 120px; border: 1.5px dashed #7aa2ec; background: transparent; outline: none; resize: none; padding: 0; margin: 0; line-height: 1.15; z-index: 3; overflow: hidden; white-space: pre; }
+  .toast { position: fixed; top: 16px; left: 50%; transform: translateX(-50%); background: #2a3140; color: #fff; padding: 7px 14px; border-radius: 8px; font-size: 13px; opacity: 0; transition: opacity .3s; pointer-events: none; z-index: 4; }
+  .toast.show { opacity: 1; }
+</style>
+</head>
+<body class="white">
+<canvas id="ink"></canvas>
+<textarea id="textbox" spellcheck="false" aria-label="Text"></textarea>
+
+<div class="bar" id="bar" role="toolbar" aria-label="Whiteboard tools">
+  <button class="grip" id="grip" title="Drag to move the panel · double-click to put it back" aria-label="Move tools panel (arrow keys)"><svg viewBox="0 0 10 18"><circle cx="2.5" cy="3" r="1.6"/><circle cx="7.5" cy="3" r="1.6"/><circle cx="2.5" cy="9" r="1.6"/><circle cx="7.5" cy="9" r="1.6"/><circle cx="2.5" cy="15" r="1.6"/><circle cx="7.5" cy="15" r="1.6"/></svg></button>
+  <div class="grp">
+  <button class="b on" data-tool="pen" title="Pen (P)" aria-label="Pen"><svg viewBox="0 0 24 24"><path d="M4 20l4-1L19 8a2.1 2.1 0 0 0-3-3L5 16z"/><path d="M14 7l3 3"/></svg></button>
+  <button class="b" data-tool="marker" title="Highlighter (H)" aria-label="Highlighter"><svg viewBox="0 0 24 24"><path d="M9 14l-4 4v2h4l4-4"/><path d="M9 14l6-10 5 5-10 6z"/></svg></button>
+  <button class="b" data-tool="text" title="Text (T)" aria-label="Text"><svg viewBox="0 0 24 24"><path d="M5 6V4h14v2M12 4v16M9 20h6"/></svg></button>
+  <button class="b" data-tool="eraser" title="Eraser (E)" aria-label="Eraser"><svg viewBox="0 0 24 24"><path d="M8 20h12"/><path d="M4.5 14.5l9-9a2 2 0 0 1 2.8 0l3.2 3.2a2 2 0 0 1 0 2.8L12 19H8.5z"/><path d="M9 10l5 5"/></svg></button>
+  </div>
+  <div class="grp" id="colors"></div>
+  <div class="grp sizes" id="sizes"></div>
+  <div class="grp">
+  <select id="bg" title="Board" aria-label="Board style">
+    <option value="white">Whiteboard</option>
+    <option value="lined">Lined paper</option>
+    <option value="chalk">Chalkboard</option>
+    <option value="black">Blackboard</option>
+  </select>
+  <button class="b" id="undo" title="Undo (Ctrl+Z)" aria-label="Undo"><svg viewBox="0 0 24 24"><path d="M9 14L4 9l5-5"/><path d="M4 9h11a5 5 0 0 1 0 10h-3"/></svg></button>
+  <button class="b" id="redo" title="Redo (Ctrl+Y)" aria-label="Redo"><svg viewBox="0 0 24 24"><path d="M15 14l5-5-5-5"/><path d="M20 9H9a5 5 0 0 0 0 10h3"/></svg></button>
+  <button class="b" id="clear" title="Wipe the board" aria-label="Clear board"><svg viewBox="0 0 24 24"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 13h10l1-13M9 7V4h6v3"/></svg></button>
+  <button class="b" id="save" title="Save as PNG" aria-label="Save PNG"><svg viewBox="0 0 24 24"><path d="M12 4v11M7 10l5 5 5-5M5 20h14"/></svg></button>
+  </div>
+</div>
+<div class="hint" id="hint">Draw with the pen · rainbow color for colorful writing · E for eraser · double-click to type text</div>
+<div class="toast" id="toast"></div>
+
+<script>
+(() => {
+"use strict";
+const cv = document.getElementById("ink"), ctx = cv.getContext("2d");
+const COLORS = ["#1f2430", "#e03131", "#f76707", "#f2c200", "#2f9e44", "#1c7ed6", "#7048e8", "#d6336c", "#ffffff", "rainbow"];
+const SIZES = [2, 4, 8, 14, 24];
+const KEY = "whiteboard.v1";
+let tool = "pen", color = "rainbow", size = 4, strokes = [], redo = [], cur = null, dpr = 1;
+
+/* ---------- toolbar ---------- */
+const colorsEl = document.getElementById("colors");
+COLORS.forEach(c => {
+  const b = document.createElement("button");
+  b.className = "c" + (c === "rainbow" ? " rainbow" : "") + (c === color ? " on" : "");
+  if (c !== "rainbow") b.style.background = c;
+  b.title = c === "rainbow" ? "Rainbow" : c; b.setAttribute("aria-label", b.title); b.dataset.c = c;
+  b.onclick = () => { color = c; colorsEl.querySelectorAll(".c").forEach(x => x.classList.toggle("on", x === b)); if (tool === "eraser") setTool("pen"); };
+  colorsEl.appendChild(b);
+});
+const sizesEl = document.getElementById("sizes");
+SIZES.forEach(s => {
+  const b = document.createElement("button");
+  b.className = "sz" + (s === size ? " on" : ""); b.title = `Size ${s}`; b.setAttribute("aria-label", b.title);
+  b.innerHTML = `<i style="width:${Math.min(22, s + 3)}px;height:${Math.min(22, s + 3)}px"></i>`;
+  b.onclick = () => { size = s; sizesEl.querySelectorAll(".sz").forEach(x => x.classList.toggle("on", x === b)); };
+  sizesEl.appendChild(b);
+});
+function setTool(t) { tool = t; document.querySelectorAll("[data-tool]").forEach(b => b.classList.toggle("on", b.dataset.tool === t)); cv.style.cursor = t === "text" ? "text" : t === "eraser" ? "cell" : "crosshair"; }
+document.querySelectorAll("[data-tool]").forEach(b => b.onclick = () => setTool(b.dataset.tool));
+const bgSel = document.getElementById("bg");
+bgSel.onchange = () => { document.body.className = bgSel.value; save(); };
+
+/* ---------- drawing ---------- */
+const hueAt = (s, i) => (s.hue0 + i * 2.2) % 360;
+function strokeColor(s, i) { return s.color === "rainbow" ? `hsl(${hueAt(s, i)} 85% 52%)` : s.color; }
+
+function drawStroke(s) {
+  // a "wipe" entry clears everything drawn before it, so Clear can be undone
+  if (s.tool === "wipe") { ctx.clearRect(0, 0, innerWidth, innerHeight); return; }
+  const p = s.pts; if (!p.length) return;
+  ctx.save();
+  if (s.tool === "eraser") ctx.globalCompositeOperation = "destination-out";
+  if (s.tool === "marker") { ctx.globalAlpha = .35; ctx.globalCompositeOperation = "multiply"; }
+  ctx.lineCap = s.tool === "marker" ? "square" : "round"; ctx.lineJoin = "round";
+  const w = s.tool === "marker" ? s.size * 3.2 : s.tool === "eraser" ? s.size * 4 : s.size;
+  if (s.tool === "text") {
+    ctx.fillStyle = s.color === "rainbow" ? "#000" : s.color;
+    ctx.font = `700 ${s.size}px Caveat, "Patrick Hand", cursive`; ctx.textBaseline = "top";
+    s.text.split("\n").forEach((line, li) => {
+      if (s.color !== "rainbow") { ctx.fillText(line, s.x, s.y + li * s.size * 1.15); return; }
+      let x = s.x; [...line].forEach((ch, ci) => { ctx.fillStyle = `hsl(${(s.hue0 + (ci + li * 7) * 24) % 360} 85% 50%)`; ctx.fillText(ch, x, s.y + li * s.size * 1.15); x += ctx.measureText(ch).width; });
+    });
+    ctx.restore(); return;
+  }
+  if (p.length === 1) { ctx.fillStyle = s.tool === "eraser" ? "#000" : strokeColor(s, 0); ctx.beginPath(); ctx.arc(p[0][0], p[0][1], w / 2, 0, Math.PI * 2); ctx.fill(); ctx.restore(); return; }
+  ctx.lineWidth = w;
+  if (s.color === "rainbow" && s.tool !== "eraser") {
+    // hue follows the distance drawn, so even long fast strokes show the full rainbow
+    let dist = 0;
+    for (let i = 1; i < p.length; i++) {
+      const [x0, y0] = p[i - 1], [x1, y1] = p[i], seg = Math.hypot(x1 - x0, y1 - y0), n = Math.max(1, Math.ceil(seg / 4));
+      for (let k = 0; k < n; k++) {
+        const a = k / n, b = (k + 1) / n;
+        ctx.strokeStyle = `hsl(${(s.hue0 + (dist + seg * a) * 0.9) % 360} 85% 52%)`;
+        ctx.beginPath(); ctx.moveTo(x0 + (x1 - x0) * a, y0 + (y1 - y0) * a); ctx.lineTo(x0 + (x1 - x0) * b, y0 + (y1 - y0) * b); ctx.stroke();
+      }
+      dist += seg;
+    }
+  } else {
+    ctx.strokeStyle = s.tool === "eraser" ? "#000" : s.color;
+    ctx.beginPath(); ctx.moveTo(p[0][0], p[0][1]);
+    for (let i = 1; i < p.length - 1; i++) { const mx = (p[i][0] + p[i + 1][0]) / 2, my = (p[i][1] + p[i + 1][1]) / 2; ctx.quadraticCurveTo(p[i][0], p[i][1], mx, my); }
+    ctx.lineTo(p[p.length - 1][0], p[p.length - 1][1]); ctx.stroke();
+  }
+  ctx.restore();
+}
+function redraw() { ctx.setTransform(dpr, 0, 0, dpr, 0, 0); ctx.clearRect(0, 0, cv.width, cv.height); strokes.forEach(drawStroke); if (cur) drawStroke(cur); }
+function resize() { dpr = window.devicePixelRatio || 1; cv.width = innerWidth * dpr; cv.height = innerHeight * dpr; redraw(); }
+addEventListener("resize", resize);
+
+const pt = e => [Math.round(e.clientX * 10) / 10, Math.round(e.clientY * 10) / 10];
+cv.addEventListener("pointerdown", e => {
+  if (e.button !== 0) return;
+  if (tool === "text") { openText(e.clientX, e.clientY); return; }
+  hideHint(); commitText();
+  cv.setPointerCapture(e.pointerId);
+  cur = { tool, color: tool === "eraser" ? null : color, size, pts: [pt(e)], hue0: Math.random() * 360 | 0 };
+  redraw();
+});
+cv.addEventListener("pointermove", e => {
+  if (!cur) return;
+  const evs = e.getCoalescedEvents ? e.getCoalescedEvents() : [e];
+  for (const ev of evs) { const q = pt(ev), l = cur.pts[cur.pts.length - 1]; if (Math.hypot(q[0] - l[0], q[1] - l[1]) > 1.2) cur.pts.push(q); }
+  redraw();
+  liveSoon();
+});
+function endStroke() { if (!cur) return; strokes.push(cur); cur = null; redo = []; redraw(); save(); }
+cv.addEventListener("pointerup", endStroke);
+cv.addEventListener("pointercancel", endStroke);
+cv.addEventListener("dblclick", e => { if (tool !== "eraser") { undoLast(true); openText(e.clientX, e.clientY); } });
+
+/* ---------- text ---------- */
+const tb = document.getElementById("textbox");
+function textSize() { return Math.max(36, size * 8); }
+function openText(x, y) {
+  commitText();
+  const fs = textSize();
+  Object.assign(tb.style, { display: "block", left: x + "px", top: (y - fs * .55) + "px", fontSize: fs + "px", fontFamily: 'Caveat, "Patrick Hand", cursive', fontWeight: 700,
+    color: color === "rainbow" ? "#d6336c" : color, width: "160px", height: fs * 1.3 + "px" });
+  tb.value = ""; tb.dataset.x = x; tb.dataset.y = y - fs * .55; tb.dataset.fs = fs;
+  setTimeout(() => tb.focus(), 0);
+}
+function fitText() { const fs = +tb.dataset.fs; const lines = tb.value.split("\n"); tb.style.height = lines.length * fs * 1.18 + 6 + "px"; tb.style.width = Math.max(160, tb.scrollWidth + 20) + "px"; }
+tb.addEventListener("input", fitText);
+function commitText() {
+  if (tb.style.display !== "block") return;
+  const v = tb.value.replace(/\s+$/, ""); tb.style.display = "none";
+  if (!v) return;
+  strokes.push({ tool: "text", color, size: +tb.dataset.fs, text: v, x: +tb.dataset.x + 2, y: +tb.dataset.y + 2, hue0: Math.random() * 360 | 0, pts: [[0, 0]] });
+  redo = []; redraw(); save();
+}
+tb.addEventListener("keydown", e => { if (e.key === "Escape" || (e.key === "Enter" && (e.ctrlKey || e.metaKey))) commitText(); });
+tb.addEventListener("blur", commitText);
+
+/* ---------- history / actions ---------- */
+function undoLast(silent) { const s = strokes.pop(); if (s) { redo.push(s); redraw(); save(); } else if (!silent) toast("Nothing to undo"); }
+document.getElementById("undo").onclick = () => undoLast();
+document.getElementById("redo").onclick = () => { const s = redo.pop(); if (s) { strokes.push(s); redraw(); save(); } };
+let clearArmed = 0;
+document.getElementById("clear").onclick = () => {
+  if (!strokes.length) return;
+  if (Date.now() - clearArmed > 2500) { clearArmed = Date.now(); toast("Click wipe again to clear the board (Undo brings it back)"); return; }
+  clearArmed = 0; strokes.push({ tool: "wipe", pts: [] }); redo = []; redraw(); save();
+};
+
+document.getElementById("save").onclick = () => {
+  const out = document.createElement("canvas"); out.width = cv.width; out.height = cv.height; const o = out.getContext("2d");
+  const bgc = { white: "#fbfbf8", lined: "#fffdf5", chalk: "#1f3a2e", black: "#15171c" }[bgSel.value];
+  o.fillStyle = bgc; o.fillRect(0, 0, out.width, out.height); o.drawImage(cv, 0, 0);
+  const a = document.createElement("a"); a.download = "whiteboard.png"; a.href = out.toDataURL("image/png"); a.click();
+};
+
+document.addEventListener("keydown", e => {
+  if (e.target === tb) return;
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "z") { e.preventDefault(); e.shiftKey ? document.getElementById("redo").click() : undoLast(); return; }
+  if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === "y") { e.preventDefault(); document.getElementById("redo").click(); return; }
+  if (e.ctrlKey || e.metaKey || e.altKey) return;
+  const t = { p: "pen", h: "marker", t: "text", e: "eraser" }[e.key.toLowerCase()]; if (t) setTool(t);
+  const n = +e.key; if (n >= 1 && n <= SIZES.length) sizesEl.children[n - 1].click();
+});
+
+/* ---------- persistence (this browser only) ---------- */
+function save() { try { localStorage.setItem(KEY, JSON.stringify({ strokes, bg: bgSel.value })); } catch {} syncSoon(); }
+
+/* ---------- sync: send the ink (transparent PNG) to the dashboard, which mirrors it into Paint ---------- */
+const inFrame = window.parent !== window;
+let syncT;
+function syncSoon() { if (!inFrame) return; clearTimeout(syncT); syncT = setTimeout(syncNow, 120); }
+function syncNow() {
+  const w = innerWidth, h = innerHeight, out = document.createElement("canvas");
+  out.width = w; out.height = h; out.getContext("2d").drawImage(cv, 0, 0, w, h);
+  window.parent.postMessage({ type: "wb-ink", png: out.toDataURL("image/png"), w, h, strokes: strokes.length }, "*");
+}
+addEventListener("message", e => {
+  if (e.source === window.parent && e.data && e.data.type === "wb-request") syncNow();
+});
+
+/* live frames while a stroke is in progress: a transferable ImageBitmap, at most one per animation frame */
+let liveQueued = false, liveBusy = false;
+function liveSoon() {
+  if (!inFrame || liveQueued || !window.createImageBitmap) return;
+  liveQueued = true;
+  requestAnimationFrame(async () => {
+    liveQueued = false;
+    if (liveBusy) { liveSoon(); return; }
+    liveBusy = true;
+    try {
+      const w = innerWidth, h = innerHeight;
+      const bmp = await createImageBitmap(cv, { resizeWidth: w, resizeHeight: h, resizeQuality: "low" });
+      window.parent.postMessage({ type: "wb-live", bmp, w, h }, "*", [bmp]);
+    } catch {}
+    liveBusy = false;
+  });
+}
+function load() { try { const d = JSON.parse(localStorage.getItem(KEY) || "null"); if (d) { strokes = d.strokes || []; bgSel.value = d.bg || "white"; document.body.className = bgSel.value; } } catch {} }
+
+/* ---------- movable tools panel ---------- */
+const bar = document.getElementById("bar"), grip = document.getElementById("grip"), BAR_KEY = "whiteboard.bar";
+let barPos = null; // {x, y} as fractions of the window, so it stays in place when the window resizes
+function placeBar() {
+  if (!barPos) { bar.classList.remove("moved"); bar.style.left = bar.style.top = ""; return; }
+  bar.classList.add("moved");
+  const w = bar.offsetWidth, h = bar.offsetHeight;
+  const x = Math.min(Math.max(0, barPos.x * innerWidth), Math.max(0, innerWidth - w));
+  const y = Math.min(Math.max(0, barPos.y * innerHeight), Math.max(0, innerHeight - h));
+  bar.style.left = x + "px"; bar.style.top = y + "px";
+}
+function moveBarTo(x, y) { barPos = { x: x / innerWidth, y: y / innerHeight }; placeBar(); }
+function saveBar() { try { barPos ? localStorage.setItem(BAR_KEY, JSON.stringify(barPos)) : localStorage.removeItem(BAR_KEY); } catch {} }
+grip.addEventListener("pointerdown", e => {
+  if (e.button !== 0) return;
+  e.preventDefault(); grip.setPointerCapture(e.pointerId);
+  const r = bar.getBoundingClientRect(), dx = e.clientX - r.left, dy = e.clientY - r.top;
+  bar.classList.add("dragging");
+  const move = ev => moveBarTo(ev.clientX - dx, ev.clientY - dy);
+  const up = () => { bar.classList.remove("dragging"); grip.removeEventListener("pointermove", move); grip.removeEventListener("pointerup", up); grip.removeEventListener("pointercancel", up); saveBar(); };
+  grip.addEventListener("pointermove", move); grip.addEventListener("pointerup", up); grip.addEventListener("pointercancel", up);
+});
+grip.addEventListener("dblclick", () => { barPos = null; placeBar(); saveBar(); });
+grip.addEventListener("keydown", e => {
+  const d = e.shiftKey ? 40 : 10, r = bar.getBoundingClientRect();
+  const k = { ArrowLeft: [-d, 0], ArrowRight: [d, 0], ArrowUp: [0, -d], ArrowDown: [0, d] }[e.key];
+  if (k) { e.preventDefault(); e.stopPropagation(); moveBarTo(r.left + k[0], r.top + k[1]); saveBar(); }
+  if (e.key === "Home") { e.preventDefault(); barPos = null; placeBar(); saveBar(); }
+});
+addEventListener("resize", placeBar);
+try { barPos = JSON.parse(localStorage.getItem(BAR_KEY) || "null"); } catch {}
+placeBar();
+
+let tId; function toast(m) { const el = document.getElementById("toast"); el.textContent = m; el.classList.add("show"); clearTimeout(tId); tId = setTimeout(() => el.classList.remove("show"), 2200); }
+function hideHint() { document.getElementById("hint").style.opacity = 0; }
+
+load();
+if (document.fonts) document.fonts.ready.then(() => { redraw(); syncSoon(); });
+resize();
+syncSoon();
+if (strokes.length) hideHint();
+})();
+</script>
+</body>
+</html>
